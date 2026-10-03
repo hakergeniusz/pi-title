@@ -1,0 +1,30 @@
+{
+	"name": "pi-title",
+	"version": "1.0.0",
+	"description": "Auto-titles pi coding agent sessions: one cheap nested model call writes a 2-6 word title after the first exchange. /title to show, set, regenerate, or toggle.",
+	"type": "module",
+	"license": "MIT",
+	"keywords": [
+		"pi",
+		"pi-package",
+		"session-title",
+		"naming",
+		"auto-title"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hakergeniusz/pi-title.git"
+	},
+	"bugs": {
+		"url": "https://github.com/hakergeniusz/pi-title/issues"
+	},
+	"homepage": "https://github.com/hakergeniusz/pi-title#readme",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
