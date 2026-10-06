@@ -13,6 +13,12 @@
 // PI_TITLE=off disables the extension entirely (A/B switch).
 // PI_TITLE_MODEL=provider/id overrides the titling model (default: the
 // session's active model).
+//
+// The titling call is nested (modelRegistry.streamSimple), which skips pi's
+// before_provider_headers hooks - so it carries the OpenCode free-tier
+// identity itself via ./opencode-nested, or OpenCode answers 403.
+
+import { streamNestedOpencode } from "./opencode-nested.ts";
 
 const MAX_ATTEMPTS = 3;
 const SOURCE_CAP = 1500; // chars of each message fed to the titler
@@ -97,7 +103,7 @@ export default function (pi: any) {
 		].join("\n");
 
 		try {
-			const events = registry.streamSimple.call(
+			const events = streamNestedOpencode(
 				registry,
 				model,
 				{
@@ -108,7 +114,7 @@ export default function (pi: any) {
 			);
 			let final: StreamChunk | null = null;
 			for await (const chunk of events) {
-				if (chunk?.type === "done" || chunk?.type === "error") final = chunk;
+				if (chunk?.type === "done" || chunk?.type === "error") final = chunk as StreamChunk;
 			}
 			if (!final || final.type !== "done") return null;
 			const output = textOf(final.message, "assistant");

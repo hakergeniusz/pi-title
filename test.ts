@@ -195,6 +195,100 @@ delete process.env.PI_TITLE;
 	check("PI_TITLE_MODEL overrides session model", fake.calls[0]?.model?.provider === "other" && fake.calls[0]?.model?.id === "cheap-model");
 }
 
+// Nested calls skip pi's before_provider_headers hooks, so pi-title sends the
+// OpenCode free-tier identity itself: CLI User-Agent, x-opencode-client, a
+// canonical ses_ session id, no project/request headers.
+{
+	const headers: Record<string, any>[] = [];
+	process.env.OPENCODE_ZEN_API_KEY = "ladder-key";
+	const fake = makeFake(["Free Tier Title"], false);
+	fake.ctx.model = { provider: "opencode", id: "space-bunny-free" };
+	fake.ctx.modelRegistry.streamSimple = (_model: any, _context: any, options: any) =>
+		(async function* () {
+			headers.push(await options.transformHeaders({ authorization: "Bearer unused", "x-opencode-project": "pi" }));
+			yield { type: "done", message: { role: "assistant", content: [{ type: "text", text: "Free Tier Title" }] } };
+		})();
+	activate(fake.pi);
+	fake.fire("session_start", {});
+	fake.fire("agent_end", { messages: [{ role: "user", content: "free tier question" }] });
+	await settle(fake);
+	delete process.env.OPENCODE_ZEN_API_KEY;
+	const sent = headers[0] ?? {};
+	check("sends opencode CLI identity", sent["User-Agent"] === "opencode/latest/2.0.18/cli" && sent["x-opencode-client"] === "cli", JSON.stringify(sent));
+	check("sends canonical ses_ session id", /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(String(sent["x-opencode-session"])), String(sent["x-opencode-session"]));
+	check("drops opencode project header", sent["x-opencode-project"] === undefined);
+	check("replaces placeholder auth with the env console key", sent.Authorization === "Bearer ladder-key", String(sent.Authorization));
+	check("titles on a free-tier model", fake.name === "Free Tier Title", `got: ${fake.name}`);
+}
+
+// A 403 on a free model retries with the next auth strategy instead of giving up.
+{
+	let attempts = 0;
+	const usedAuth: string[] = [];
+	process.env.OPENCODE_ZEN_API_KEY = "ladder-key";
+	const fake = makeFake(["Retried Title"], false);
+	fake.ctx.model = { provider: "opencode", id: "space-bunny-free" };
+	fake.ctx.modelRegistry.getApiKeyAndHeaders = async () => ({ ok: false });
+	fake.ctx.modelRegistry.streamSimple = (_model: any, _context: any, options: any) =>
+		(async function* () {
+			attempts++;
+			const headers = await options.transformHeaders({});
+			usedAuth.push(String(headers.Authorization));
+			if (attempts === 1) {
+				yield { type: "error", error: { errorMessage: "403 Forbidden (FreeTierError): rejected" } };
+				return;
+			}
+			yield { type: "done", message: { role: "assistant", content: [{ type: "text", text: "Retried Title" }] } };
+		})();
+	activate(fake.pi);
+	fake.fire("session_start", {});
+	fake.fire("agent_end", { messages: [{ role: "user", content: "403 question" }] });
+	await settle(fake);
+	delete process.env.OPENCODE_ZEN_API_KEY;
+	check("retries once after a free-tier 403", attempts === 2 && fake.name === "Retried Title", `attempts=${attempts} name=${fake.name}`);
+	check("retry walks down the auth ladder", usedAuth[0] === "Bearer ladder-key" && usedAuth[1] === "Bearer public", usedAuth.join(" -> "));
+}
+
+// Regression: the OpenAI-compatible providers skip their own Authorization when
+// the caller supplied one, so a placeholder injected on a nested call silently
+// downgrades pi's real key to the anonymous tier (429 FreeUsageLimitError).
+{
+	const seen: { headers: Record<string, any>; options: any }[] = [];
+	const fake = makeFake(["Credential Title"], false);
+	fake.ctx.model = { provider: "opencode", id: "space-bunny-free" };
+	fake.ctx.modelRegistry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "REAL-KEY" });
+	fake.ctx.modelRegistry.streamSimple = (_model: any, _context: any, options: any) =>
+		(async function* () {
+			seen.push({ headers: await options.transformHeaders({}), options });
+			yield { type: "done", message: { role: "assistant", content: [{ type: "text", text: "Credential Title" }] } };
+		})();
+	activate(fake.pi);
+	fake.fire("session_start", {});
+	fake.fire("agent_end", { messages: [{ role: "user", content: "credential question" }] });
+	await settle(fake);
+	check("keeps pi's resolved credential", seen[0]?.headers?.Authorization === "Bearer REAL-KEY", String(seen[0]?.headers?.Authorization));
+	check("passes pi's api key through", seen[0]?.options?.apiKey === "REAL-KEY");
+	check("titles with a real credential", fake.name === "Credential Title", `got: ${fake.name}`);
+}
+
+// A real credential already on the wire is never replaced.
+{
+	const seen: Record<string, any>[] = [];
+	const fake = makeFake(["Wire Title"], false);
+	fake.ctx.model = { provider: "opencode", id: "space-bunny-free" };
+	fake.ctx.modelRegistry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "RESOLVED-KEY" });
+	fake.ctx.modelRegistry.streamSimple = (_model: any, _context: any, options: any) =>
+		(async function* () {
+			seen.push(await options.transformHeaders({ Authorization: "Bearer WIRE-KEY" }));
+			yield { type: "done", message: { role: "assistant", content: [{ type: "text", text: "Wire Title" }] } };
+		})();
+	activate(fake.pi);
+	fake.fire("session_start", {});
+	fake.fire("agent_end", { messages: [{ role: "user", content: "wire question" }] });
+	await settle(fake);
+	check("never downgrades a wire credential", seen[0]?.Authorization === "Bearer WIRE-KEY", String(seen[0]?.Authorization));
+}
+
 // -----------------------------------------------------------------------------
 
 console.log(`${passed} passed, ${failed} failed`);

@@ -9,5 +9,5 @@
 		"skipLibCheck": true,
 		"lib": ["ES2022"]
 	},
-	"include": ["globals.d.ts", "index.ts", "test.ts"]
+	"include": ["globals.d.ts", "index.ts", "opencode-nested.ts", "test.ts"]
 }

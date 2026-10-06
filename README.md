@@ -32,6 +32,11 @@ boundary, and a manual title is never overwritten.
   run, at most 3 attempts, then warn once. `PI_TITLE=off` disables the
   extension entirely.
 - A resumed session that already carries a name is left alone.
+- Nested calls skip pi's `before_provider_headers` hooks, so the titling call
+  carries the OpenCode identity itself (CLI User-Agent, `x-opencode-client`,
+  canonical `ses_...` session id) and picks its auth the same way the
+  opencode-free-tier hook does. Without it, `-free` OpenCode models answer
+  `403 FreeTierError`. See `opencode-nested.ts`.
 
 ## Install
 
